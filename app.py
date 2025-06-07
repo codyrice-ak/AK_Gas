@@ -17,26 +17,29 @@ st.set_page_config(
 )
 
 @st.cache_resource
-def initialize_embeddings():
-    """Initialize embeddings model - cached to avoid recomputation"""
-    return HuggingFaceEmbeddings(
-        model_name="BAAI/bge-small-en-v1.5",
-        model_kwargs={'device': 'cpu'}  # Force CPU for cloud deployment
-    )
-
-@st.cache_resource
 def initialize_vector_store():
-    """Initialize vector store - cached to persist across queries"""
-    embeddings = initialize_embeddings()
+    """Initialize vector store with proper persistence handling for Streamlit Cloud"""
     
-    # Use temporary directory for cloud deployment
-    persist_directory = tempfile.mkdtemp()
+    # Create a temporary directory for ChromaDB
+    if 'STREAMLIT_SHARING_MODE' in os.environ:
+        # Running on Streamlit Cloud
+        persist_directory = tempfile.mkdtemp()
+        st.info("Running on Streamlit Cloud - vector store will be rebuilt on each session")
+    else:
+        # Running locally
+        persist_directory = "./chroma_db"
     
-    return Chroma(
-        collection_name="rag_collection",
+    # Initialize embeddings and vector store
+    embeddings = initialize_embeddings()  # Your existing function
+    
+    vectorstore = Chroma(
         embedding_function=embeddings,
-        persist_directory=persist_directory
+        persist_directory=persist_directory,
+        collection_name="rag_collection"
     )
+    
+    return vectorstore
+
 
 def main():
     st.title("🤖 RAG Query System")
