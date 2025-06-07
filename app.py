@@ -1,50 +1,47 @@
-import os
-os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 import streamlit as st
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.llms import Ollama  # Replace with cloud-compatible LLM
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from langchain_core.output_parsers import StrOutputParser
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams
 import tempfile
 import os
 
-# Configure Streamlit page
-st.set_page_config(
-    page_title="RAG Query System",
-    page_icon="🤖",
-    layout="wide"
-)
+@st.cache_resource
+def initialize_embeddings():
+    """Initialize embeddings model - cached to avoid recomputation"""
+    return HuggingFaceEmbeddings(
+        model_name="BAAI/bge-small-en-v1.5",
+        model_kwargs={'device': 'cpu'}
+    )
 
 @st.cache_resource
 def initialize_vector_store():
-    """Initialize vector store with proper persistence handling for Streamlit Cloud"""
+    """Initialize Qdrant vector store - works better on Streamlit Cloud"""
+    embeddings = initialize_embeddings()
     
-    # Create a temporary directory for ChromaDB
-    if 'STREAMLIT_SHARING_MODE' in os.environ:
-        # Running on Streamlit Cloud
-        persist_directory = tempfile.mkdtemp()
-        st.info("Running on Streamlit Cloud - vector store will be rebuilt on each session")
-    else:
-        # Running locally
-        persist_directory = "./chroma_db"
+    # Use in-memory Qdrant for Streamlit Cloud
+    client = QdrantClient(":memory:")
     
-    # Initialize embeddings and vector store
-    embeddings = initialize_embeddings()  # Your existing function
-    
-    vectorstore = Chroma(
-        embedding_function=embeddings,
-        persist_directory=persist_directory,
-        collection_name="rag_collection"
+    # Create collection
+    collection_name = "rag_collection"
+    client.create_collection(
+        collection_name=collection_name,
+        vectors_config=VectorParams(
+            size=384,  # BAAI/bge-small-en-v1.5 dimension
+            distance=Distance.COSINE
+        )
     )
     
-    return vectorstore
-
+    return QdrantVectorStore(
+        client=client,
+        collection_name=collection_name,
+        embedding=embeddings
+    )
 
 def main():
     st.title("🤖 RAG Query System")
     
-    # Initialize components with proper error handling
     try:
         if 'vector_store' not in st.session_state:
             with st.spinner("Initializing system..."):
@@ -53,11 +50,9 @@ def main():
                     search_kwargs={"k": 3}
                 )
         
-        # Your chat interface here
         user_query = st.chat_input("Ask your question...")
         
         if user_query:
-            # Process query with error handling
             try:
                 # Your RAG logic here
                 pass
