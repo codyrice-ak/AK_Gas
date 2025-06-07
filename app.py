@@ -1,3 +1,5 @@
+import os
+os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 import streamlit as st
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.llms import Ollama  # Replace with cloud-compatible LLM
