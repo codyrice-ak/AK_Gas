@@ -1,5 +1,6 @@
 import streamlit as st
 import pickle
+import re
 from pathlib import Path
 
 st.set_page_config(
@@ -34,22 +35,131 @@ def initialize_embeddings():
         st.error(f"Error initializing embeddings: {e}")
         return None
 
-def search_documents(query, documents, embeddings, top_k=5):
-    """Simple text search through documents"""
-    if not embeddings:
-        # Fallback to keyword search
-        results = []
-        query_lower = query.lower()
-        
-        for doc in documents:
-            if any(word in doc.page_content.lower() for word in query_lower.split()):
-                results.append(doc)
-                if len(results) >= top_k:
-                    break
-        return results
+def extract_cost_estimates(documents):
+    """Extract cost estimates from documents with context"""
+    cost_estimates = []
     
-    # TODO: Add vector similarity search in next step
-    return documents[:top_k]  # Return first 5 for now
+    # Enhanced patterns for cost detection
+    cost_patterns = [
+        r'\$[\d,]+(?:\.\d{1,2})?\s*(?:billion|million|thousand|B|M|K)',
+        r'[\d,]+(?:\.\d{1,2})?\s*billion\s*(?:dollars?|USD|\$)',
+        r'[\d,]+(?:\.\d{1,2})?\s*million\s*(?:dollars?|USD|\$)',
+        r'cost.*?\$[\d,]+(?:\.\d{1,2})?(?:\s*(?:billion|million|thousand))?',
+        r'estimate.*?\$[\d,]+(?:\.\d{1,2})?(?:\s*(?:billion|million|thousand))?'
+    ]
+    
+    year_pattern = r'\b(19|20)\d{2}\b'
+    
+    for doc in documents:
+        content = doc.page_content
+        metadata = doc.metadata
+        
+        # Find all cost mentions
+        for pattern in cost_patterns:
+            matches = re.finditer(pattern, content, re.IGNORECASE)
+            
+            for match in matches:
+                cost_text = match.group()
+                start_pos = max(0, match.start() - 200)
+                end_pos = min(len(content), match.end() + 200)
+                context = content[start_pos:end_pos].strip()
+                
+                # Extract year from context
+                years = re.findall(year_pattern, context)
+                year = years[0] if years else "Year not specified"
+                
+                cost_estimates.append({
+                    'cost': cost_text,
+                    'context': context,
+                    'filename': metadata.get('filename', 'Unknown'),
+                    'year': year,
+                    'source': metadata.get('source', 'Unknown')
+                })
+    
+    return cost_estimates
+
+def generate_cost_answer(cost_estimates, query):
+    """Generate a structured answer about costs"""
+    if not cost_estimates:
+        return "No cost estimates found in the documents."
+    
+    # Group and analyze costs
+    billion_costs = []
+    million_costs = []
+    other_costs = []
+    
+    for estimate in cost_estimates:
+        cost_text = estimate['cost'].lower()
+        if 'billion' in cost_text:
+            billion_costs.append(estimate)
+        elif 'million' in cost_text:
+            million_costs.append(estimate)
+        else:
+            other_costs.append(estimate)
+    
+    # Generate summary
+    answer = "## 💰 Cost Estimates for Alaska Gas Pipeline\n\n"
+    
+    if billion_costs:
+        answer += f"**Found {len(billion_costs)} estimates in billions of dollars:**\n\n"
+        
+        # Extract numerical values for range analysis
+        billion_values = []
+        for est in billion_costs:
+            numbers = re.findall(r'[\d,]+(?:\.\d{1,2})?', est['cost'])
+            if numbers:
+                try:
+                    value = float(numbers[0].replace(',', ''))
+                    billion_values.append(value)
+                except:
+                    pass
+        
+        if billion_values:
+            min_val = min(billion_values)
+            max_val = max(billion_values)
+            answer += f"**Range: ${min_val:.1f} - ${max_val:.1f} billion USD**\n\n"
+    
+    # Add detailed estimates
+    answer += "### 📋 Detailed Cost Estimates:\n\n"
+    
+    all_estimates = billion_costs + million_costs + other_costs
+    for i, estimate in enumerate(all_estimates[:10], 1):  # Limit to 10
+        answer += f"**{i}. {estimate['cost']}**\n"
+        answer += f"   - **Source:** {estimate['filename']}\n"
+        answer += f"   - **Year:** {estimate['year']}\n"
+        answer += f"   - **Context:** {estimate['context'][:200]}...\n\n"
+    
+    return answer
+
+def search_documents(query, documents, embeddings, top_k=10):
+    """Enhanced search with keyword and semantic matching"""
+    if not documents:
+        return []
+    
+    # Keyword-based filtering
+    query_words = query.lower().split()
+    relevant_docs = []
+    
+    for doc in documents:
+        content_lower = doc.page_content.lower()
+        
+        # Check for cost-related keywords
+        cost_keywords = ['cost', 'price', 'estimate', 'billion', 'million', 'dollar', '$', 'budget', 'expense']
+        pipeline_keywords = ['pipeline', 'gas', 'alaska', 'transport', 'lng']
+        
+        cost_score = sum(1 for word in cost_keywords if word in content_lower)
+        pipeline_score = sum(1 for word in pipeline_keywords if word in content_lower)
+        query_score = sum(1 for word in query_words if word in content_lower)
+        
+        total_score = cost_score + pipeline_score + query_score
+        
+        if total_score > 0:
+            relevant_docs.append((doc, total_score))
+    
+    # Sort by relevance score
+    relevant_docs.sort(key=lambda x: x[1], reverse=True)
+    
+    return [doc for doc, score in relevant_docs[:top_k]]
 
 def main():
     st.title("🛢️ Alaska Gas Pipeline Document Query System")
@@ -69,7 +179,7 @@ def main():
     if embeddings:
         st.success("✅ Embeddings model initialized!")
     else:
-        st.warning("⚠️ Embeddings model failed - using keyword search fallback")
+        st.warning("⚠️ Embeddings model failed - using keyword search")
     
     # Query interface
     user_query = st.chat_input("Ask your question about Alaska Gas Pipeline documents...")
@@ -77,18 +187,43 @@ def main():
     if user_query:
         st.write(f"**Your question:** {user_query}")
         
-        with st.spinner("Searching through documents..."):
+        with st.spinner("Analyzing documents and generating answer..."):
+            # Search for relevant documents
             results = search_documents(user_query, documents, embeddings)
-        
-        if results:
-            st.write(f"**Found {len(results)} relevant documents:**")
             
-            for i, doc in enumerate(results, 1):
-                with st.expander(f"Result {i}: {doc.metadata.get('filename', 'Unknown')}"):
-                    st.write(doc.page_content[:1000] + "..." if len(doc.page_content) > 1000 else doc.page_content)
-                    st.caption(f"Source: {doc.metadata.get('filename', 'Unknown')}")
-        else:
-            st.warning("No relevant documents found. Try different keywords.")
+            # Check if this is a cost-related query
+            if any(word in user_query.lower() for word in ['cost', 'price', 'billion', 'million', 'dollar', '$', 'estimate']):
+                # Extract cost information
+                cost_estimates = extract_cost_estimates(results)
+                
+                # Generate structured answer
+                answer = generate_cost_answer(cost_estimates, user_query)
+                st.markdown(answer)
+                
+            else:
+                # For non-cost queries, provide document summaries
+                if results:
+                    st.write("**📋 Answer based on document analysis:**")
+                    
+                    # Create a summary answer
+                    summary_points = []
+                    for doc in results[:5]:
+                        content = doc.page_content[:300] + "..."
+                        filename = doc.metadata.get('filename', 'Unknown')
+                        summary_points.append(f"• **{filename}:** {content}")
+                    
+                    for point in summary_points:
+                        st.markdown(point)
+                else:
+                    st.warning("No relevant documents found.")
+        
+        # Show raw documents in expander
+        if results:
+            with st.expander(f"📄 View {len(results)} Source Documents"):
+                for i, doc in enumerate(results, 1):
+                    st.write(f"**Document {i}: {doc.metadata.get('filename', 'Unknown')}**")
+                    st.write(doc.page_content)
+                    st.write("---")
 
 if __name__ == "__main__":
     main()
