@@ -35,6 +35,29 @@ def initialize_embeddings():
         st.error(f"Error initializing embeddings: {e}")
         return None
 
+def extract_year_from_context(context):
+    """Enhanced year extraction with multiple patterns"""
+    year_patterns = [
+        r'\b(19\d{2}|20\d{2})\b',  # Standard 4-digit years
+        r'\b(19\d{2}|20\d{2})\s*dollars?\b',  # Years followed by "dollars"
+        r'\bin\s+(19\d{2}|20\d{2})\b',  # "in 1977", "in 2019"
+        r'\b(19\d{2}|20\d{2})\s+estimate\b'  # "1977 estimate"
+    ]
+    
+    for pattern in year_patterns:
+        matches = re.findall(pattern, context, re.IGNORECASE)
+        if matches:
+            # Return the first valid 4-digit year found
+            for match in matches:
+                if isinstance(match, tuple):
+                    year = match[0] if len(match[0]) == 4 else match[1]
+                else:
+                    year = match
+                if len(year) == 4:
+                    return year
+    
+    return "Year not specified"
+
 def extract_cost_estimates(documents):
     """Extract cost estimates from documents with context"""
     cost_estimates = []
@@ -47,8 +70,6 @@ def extract_cost_estimates(documents):
         r'cost.*?\$[\d,]+(?:\.\d{1,2})?(?:\s*(?:billion|million|thousand))?',
         r'estimate.*?\$[\d,]+(?:\.\d{1,2})?(?:\s*(?:billion|million|thousand))?'
     ]
-    
-    year_pattern = r'\b(19|20)\d{2}\b'
     
     for doc in documents:
         content = doc.page_content
@@ -64,15 +85,14 @@ def extract_cost_estimates(documents):
                 end_pos = min(len(content), match.end() + 200)
                 context = content[start_pos:end_pos].strip()
                 
-                # Extract year from context
-                years = re.findall(year_pattern, context)
-                year = years[0] if years else "Year not specified"
+                # Extract year from context - now gets full 4-digit year
+                year = extract_year_from_context(context)
                 
                 cost_estimates.append({
                     'cost': cost_text,
                     'context': context,
                     'filename': metadata.get('filename', 'Unknown'),
-                    'year': year,
+                    'year': year,  # Now will show full year
                     'source': metadata.get('source', 'Unknown')
                 })
     
