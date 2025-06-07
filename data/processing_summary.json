@@ -1,0 +1,19 @@
+{
+  "total_documents": 39581,
+  "total_points": 39581,
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "vector_dimension": 384,
+  "processing_date": "2025-06-07 14:03:54",
+  "folders_processed": [
+    "C:\\Users\\codyr\\OneDrive\\Documents\\GitHub\\AK_Gas_Pipeline_Document_Query_Tool\\data\\Raw_Data\\ARLIS_Pipe_Files_v1",
+    "C:\\Users\\codyr\\OneDrive\\Documents\\GitHub\\AK_Gas_Pipeline_Document_Query_Tool\\data\\Raw_Data\\pipeline_docs"
+  ],
+  "file_types_processed": [
+    ".pdf",
+    ".txt",
+    ".docx"
+  ],
+  "chunk_size": 1000,
+  "chunk_overlap": 200,
+  "processing_environment": "CPU (conda jupyter_env)"
+}
