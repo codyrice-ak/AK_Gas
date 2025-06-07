@@ -1,0 +1,7 @@
+AK_Gas_Pipeline_Document_Query_Tool/
+├── app.py                 # Main Streamlit application
+├── requirements.txt       # Dependencies
+├── .streamlit/
+│   └── config.toml       # Streamlit configuration
+├── README.md
+└── data/                 # Your document files (if needed)
